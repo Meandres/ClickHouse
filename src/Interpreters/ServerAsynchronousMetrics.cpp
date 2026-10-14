@@ -20,6 +20,7 @@
 #include <IO/UncompressedCache.h>
 #include <IO/MMappedFileCache.h>
 #include <Common/PageCache.h>
+#include <Storages/ObjectStorage/PufferFish/PufferFishCache.h>
 #include <Common/quoteString.h>
 #include <Common/HTTPConnectionPool.h>
 #include <Common/HistogramMetrics.h>
@@ -250,6 +251,23 @@ void ServerAsynchronousMetrics::updateImpl(TimePoint update_time, TimePoint curr
         prev_reader_executor_cost_us = cost_us;
         prev_reader_executor_requested_bytes = req_bytes;
     }
+
+#if USE_PUFFERFISH
+    if (auto pufferfish_cache = PufferFishCache::instance().tryGet())
+    {
+        const auto stats = pufferfish_cache->Stats();
+        new_values["PufferFishResidentBytes"] = { stats.resident_bytes, "Bytes held by the PufferFish cache." };
+        new_values["PufferFishResidentEntries"] = { stats.resident_entries, "Entries (format units or grid cells) held by the PufferFish cache." };
+        new_values["PufferFishEntryHits"] = { stats.entry_hits, "Entries of PufferFish reads found in the cache, since start or the last reset." };
+        new_values["PufferFishEntryMisses"] = { stats.entry_misses, "Entries of PufferFish reads fetched from object storage." };
+        new_values["PufferFishInflightWaits"] = { stats.inflight_waits, "PufferFish misses served by another reader's in-flight fetch." };
+        new_values["PufferFishBytesFromCache"] = { stats.bytes_from_cache, "Bytes of PufferFish reads served from the cache." };
+        new_values["PufferFishBytesFetched"] = { stats.bytes_fetched, "Bytes fetched from object storage by PufferFish." };
+        new_values["PufferFishGetRequests"] = { stats.get_requests, "GET requests issued by PufferFish." };
+        new_values["PufferFishEvictions"] = { stats.evictions, "Entries evicted from the PufferFish cache." };
+        new_values["PufferFishLayoutsSet"] = { stats.layouts_set, "Layouts installed in the PufferFish cache." };
+    }
+#endif
 
     if (auto page_cache = getContext()->getPageCache())
     {

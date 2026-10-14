@@ -27,6 +27,7 @@
 #include <Interpreters/AsynchronousInsertQueue.h>
 #include <Interpreters/AsynchronousMetricLog.h>
 #include <Interpreters/FileCache/FileCache.h>
+#include <Storages/ObjectStorage/PufferFish/PufferFishCache.h>
 #include <Interpreters/FileCache/FileCacheFactory.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/DDLWorker.h>
@@ -640,6 +641,10 @@ BlockIO InterpreterSystemQuery::execute()
 
                     cache_data->cache->removeAllReleasable(user_id);
                 }
+#if USE_PUFFERFISH
+                if (auto pufferfish_cache = PufferFishCache::instance().tryGet())
+                    pufferfish_cache->Clear();
+#endif
             }
             else
             {

@@ -107,6 +107,11 @@ add_contrib (StringZilla-cmake StringZilla)
 add_contrib (xsimd-cmake xsimd) # required by arrow's SIMD codepaths
 add_contrib (arrow-cmake arrow) # requires: snappy, thrift, double-conversion, xsimd
 add_contrib (avro-cmake avro) # requires: snappy
+if (PUFFERFISH_SOURCE_DIR)
+    add_subdirectory (pufferfish-cmake)
+else ()
+    add_contrib (pufferfish-cmake pufferfish)
+endif ()
 add_contrib (openldap-cmake openldap)
 add_contrib (msgpack-c-cmake msgpack-c)
 add_contrib (libarchive-cmake libarchive)

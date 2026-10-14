@@ -7402,6 +7402,9 @@ Use cache for remote filesystem. This setting does not turn on/off cache for dis
     DECLARE(String, filesystem_cache_name, "", R"(
 Filesystem cache name to use for stateless table engines or data lakes
 )", 0) \
+    DECLARE(Bool, use_pufferfish_cache, false, R"(
+Read objects of stateless table engines and data lakes on S3 through the PufferFish format-aware cache instead of the filesystem, page and distributed caches. Parquet and ORC readers describe the format units of each file to the cache.
+)", EXPERIMENTAL) \
     DECLARE(Bool, enable_filesystem_cache_on_write_operations, false, R"(
 Enables or disables `write-through` cache. If set to `false`, the `write-through` cache is disabled for write operations. If set to `true`, `write-through` cache is enabled as long as `cache_on_write_operations` is turned on in the server config's cache disk configuration section.
 See ["Using local cache"](/concepts/features/configuration/server-config/storing-data#using-local-cache) for more details.

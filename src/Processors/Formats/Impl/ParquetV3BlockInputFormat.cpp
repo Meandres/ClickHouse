@@ -13,6 +13,7 @@
 #include <Formats/FormatParserSharedResources.h>
 #include <IO/SharedThreadPools.h>
 #include <IO/VarInt.h>
+#include <IO/WithFormatLayout.h>
 #include <IO/copyData.h>
 #include <Interpreters/Context.h>
 #include <Processors/Formats/Impl/ArrowBufferedStreams.h>
@@ -64,6 +65,41 @@ ParquetV3BlockInputFormat::ParquetV3BlockInputFormat(
         format_filter_info = std::make_shared<FormatFilterInfo>();
 }
 
+/// One unit per column chunk (dictionary page included), column index, offset index and bloom filter, plus the footer.
+static WithFormatLayout::Units describeParquetUnits(const parquet::format::FileMetaData & metadata, Parquet::Prefetcher & prefetcher)
+{
+    const size_t file_size = prefetcher.getFileSize();
+    WithFormatLayout::Units units;
+    auto add = [&](int64_t offset, int64_t length)
+    {
+        if (offset >= 0 && length > 0 && size_t(offset) <= file_size && size_t(length) <= file_size - size_t(offset))
+            units.emplace_back(offset, length);
+    };
+    for (const auto & row_group : metadata.row_groups)
+    {
+        for (const auto & column : row_group.columns)
+        {
+            const auto & meta = column.meta_data;
+            int64_t start = meta.data_page_offset;
+            if (meta.__isset.dictionary_page_offset)
+                start = std::min(start, meta.dictionary_page_offset);
+            add(start, meta.total_compressed_size);
+            if (column.__isset.column_index_offset && column.__isset.column_index_length)
+                add(column.column_index_offset, column.column_index_length);
+            if (column.__isset.offset_index_offset && column.__isset.offset_index_length)
+                add(column.offset_index_offset, column.offset_index_length);
+            if (meta.__isset.bloom_filter_offset && meta.__isset.bloom_filter_length)
+                add(meta.bloom_filter_offset, meta.bloom_filter_length);
+        }
+    }
+    char tail[8];
+    prefetcher.readSync(tail, sizeof(tail), file_size - sizeof(tail));
+    int32_t footer_length = 0;
+    memcpy(&footer_length, tail, sizeof(footer_length));
+    add(int64_t(file_size) - 8 - footer_length, int64_t(footer_length) + 8);
+    return units;
+}
+
 void ParquetV3BlockInputFormat::initializeIfNeeded()
 {
     if (!reader)
@@ -100,6 +136,8 @@ void ParquetV3BlockInputFormat::initializeIfNeeded()
             reader.emplace();
             reader->reader.prefetcher.init(in, read_options, parser_shared_resources);
             reader->reader.file_metadata = getFileMetadata(reader->reader.prefetcher);
+            if (auto * layout_sink = tryGetFormatLayoutSink(*in))
+                layout_sink->addFormatUnits("parquet", describeParquetUnits(reader->reader.file_metadata, reader->reader.prefetcher));
             reader->reader.init(read_options, getPort().getHeader(), format_filter_info);
             reader->init(parser_shared_resources, buckets_to_read ? std::optional(buckets_to_read->row_group_ids) : std::nullopt);
         }
@@ -108,17 +146,19 @@ void ParquetV3BlockInputFormat::initializeIfNeeded()
 
 parquet::format::FileMetaData ParquetV3BlockInputFormat::getFileMetadata(Parquet::Prefetcher & prefetcher) const
 {
+    /// A speculative 64 KiB tail read would pull in whole units before the footer once the cache follows the layout.
+    const size_t initial_read_size = tryGetFormatLayoutSink(*in) ? 8 : 64ul << 10;
     if (metadata_cache && object_with_metadata.has_value() && object_with_metadata->metadata.has_value())
     {
         String file_name = object_with_metadata->getPath();
         String etag = object_with_metadata->metadata->etag;
         ParquetMetadataCacheKey cache_key = ParquetMetadataCache::createKey(file_name, etag);
         return metadata_cache->getOrSetMetadata(
-            cache_key, [&]() { return Parquet::Reader::readFileMetaData(prefetcher); });
+            cache_key, [&]() { return Parquet::Reader::readFileMetaData(prefetcher, initial_read_size); });
     }
     else
     {
-        return Parquet::Reader::readFileMetaData(prefetcher);
+        return Parquet::Reader::readFileMetaData(prefetcher, initial_read_size);
     }
 }
 
@@ -229,7 +269,10 @@ void NativeParquetSchemaReader::initializeIfNeeded()
         return;
     Parquet::Prefetcher prefetcher;
     prefetcher.init(&in, read_options, /*parser_shared_resources_=*/ nullptr);
-    file_metadata = Parquet::Reader::readFileMetaData(prefetcher);
+    auto * layout_sink = tryGetFormatLayoutSink(in);
+    file_metadata = Parquet::Reader::readFileMetaData(prefetcher, layout_sink ? 8 : 64ul << 10);
+    if (layout_sink)
+        layout_sink->addFormatUnits("parquet", describeParquetUnits(file_metadata, prefetcher));
     initialized = true;
 }
 
@@ -361,8 +404,8 @@ void registerInputFormatParquet(FormatFactory & factory)
            const std::optional<RelativePathWithMetadata> & object_with_metadata,
            const ContextPtr & context) -> InputFormatPtr
         {
-            size_t min_bytes_for_seek
-                = is_remote_fs ? read_settings.remote_fs_settings.min_bytes_for_seek : settings.parquet.local_read_min_bytes_for_seek;
+            size_t min_bytes_for_seek = is_remote_fs && !tryGetFormatLayoutSink(buf)
+                ? read_settings.remote_fs_settings.min_bytes_for_seek : settings.parquet.local_read_min_bytes_for_seek;
             /// `tryGet` keeps the metadata-aware creator usable from contexts that don't
             /// initialise the cache (e.g. the client side of `INSERT ... FROM INFILE`).
             /// In such contexts we just don't memoise the footer — the format itself works
@@ -389,8 +432,8 @@ void registerInputFormatParquet(FormatFactory & factory)
         FormatParserSharedResourcesPtr parser_shared_resources,
         FormatFilterInfoPtr format_filter_info) -> InputFormatPtr
     {
-        size_t min_bytes_for_seek
-            = is_remote_fs ? read_settings.remote_fs_settings.min_bytes_for_seek : settings.parquet.local_read_min_bytes_for_seek;
+        size_t min_bytes_for_seek = is_remote_fs && !tryGetFormatLayoutSink(buf)
+            ? read_settings.remote_fs_settings.min_bytes_for_seek : settings.parquet.local_read_min_bytes_for_seek;
         return std::make_shared<ParquetV3BlockInputFormat>(
             buf,
             std::make_shared<const Block>(sample),

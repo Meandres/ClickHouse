@@ -1278,11 +1278,52 @@ NativeORCBlockInputFormat::NativeORCBlockInputFormat(
 {
 }
 
+/// Stripe footers and the file tail (stripe statistics, footer, postscript) are known from the file footer; the streams of
+/// a stripe only from its stripe footer, so they are described stripe by stripe, before the stripe is read.
+void NativeORCBlockInputFormat::describeFileUnits()
+{
+    layout_sink = tryGetFormatLayoutSink(*in);
+    if (!layout_sink)
+        return;
+    const uint64_t num_stripes = file_reader->getNumberOfStripes();
+    described_stripes.assign(num_stripes, false);
+    WithFormatLayout::Units units;
+    units.reserve(num_stripes + 3);
+    for (uint64_t i = 0; i < num_stripes; ++i)
+    {
+        auto stripe = file_reader->getStripe(i);
+        units.emplace_back(stripe->getOffset() + stripe->getIndexLength() + stripe->getDataLength(), stripe->getFooterLength());
+    }
+    const uint64_t statistics_offset = file_reader->getContentLength();
+    const uint64_t footer_offset = statistics_offset + file_reader->getStripeStatisticsLength();
+    const uint64_t postscript_offset = footer_offset + file_reader->getFileFooterLength();
+    units.emplace_back(statistics_offset, footer_offset - statistics_offset);
+    units.emplace_back(footer_offset, postscript_offset - footer_offset);
+    units.emplace_back(postscript_offset, file_reader->getFileLength() - postscript_offset);
+    layout_sink->addFormatUnits("orc", std::move(units));
+}
+
+void NativeORCBlockInputFormat::describeStripeUnits(int stripe)
+{
+    if (!layout_sink || described_stripes[stripe])
+        return;
+    described_stripes[stripe] = true;
+    auto info = file_reader->getStripe(stripe);
+    WithFormatLayout::Units units;
+    for (uint64_t i = 0; i < info->getNumberOfStreams(); ++i)
+    {
+        auto stream = info->getStreamInformation(i);
+        units.emplace_back(stream->getOffset(), stream->getLength());
+    }
+    layout_sink->addFormatUnits("orc", std::move(units));
+}
+
 void NativeORCBlockInputFormat::prepareFileReader()
 {
     getFileReader(*in, file_reader, format_settings, use_prefetch, min_bytes_for_seek, is_stopped);
     if (is_stopped)
         return;
+    describeFileUnits();
 
     if (format_filter_info)
         format_filter_info->initKeyConditionOnce(buildORCKeyConditionBlock(
@@ -1337,6 +1378,7 @@ void NativeORCBlockInputFormat::prefetchStripes()
     {
         int stripe = selected_stripes[prefetch_iterator];
         stripes.push_back(stripe);
+        describeStripeUnits(stripe);
 
         total_stripe_size += file_reader->getStripe(stripe)->getLength();
         ++prefetch_iterator;
@@ -1378,6 +1420,7 @@ bool NativeORCBlockInputFormat::prepareStripeReader()
     current_stripe_info = file_reader->getStripe(current_stripe);
     if (!current_stripe_info->getNumberOfRows())
         throw Exception(ErrorCodes::INCORRECT_DATA, "ORC stripe {} has no rows", current_stripe);
+    describeStripeUnits(current_stripe);
 
     orc::RowReaderOptions row_reader_options;
     row_reader_options.setEnableLazyDecoding(format_settings.orc.dictionary_as_low_cardinality);
@@ -1475,6 +1518,8 @@ void NativeORCBlockInputFormat::resetParser()
     file_reader.reset();
     stripe_reader.reset();
     include_indices.clear();
+    layout_sink = nullptr;
+    described_stripes.clear();
     sargs.reset();
     block_missing_values.clear();
 }
@@ -3134,7 +3179,9 @@ void registerInputFormatORC(FormatFactory & factory)
             auto * seekable_in = dynamic_cast<SeekableReadBuffer *>(&buf);
             const bool use_prefetch = is_remote_fs && read_settings.remote_fs_settings.prefetch && has_file_size && seekable_in
                 && seekable_in->checkIfActuallySeekable() && seekable_in->supportsReadAt() && settings.seekable_read;
-            const size_t min_bytes_for_seek = use_prefetch ? read_settings.remote_fs_settings.min_bytes_for_seek : 0;
+            /// Behind a format-aware cache, coalescing across unread streams would only fetch and cache more units.
+            const size_t remote_min_bytes_for_seek = tryGetFormatLayoutSink(buf) ? 64 * 1024 : read_settings.remote_fs_settings.min_bytes_for_seek;
+            const size_t min_bytes_for_seek = use_prefetch ? remote_min_bytes_for_seek : 0;
             return std::make_shared<NativeORCBlockInputFormat>(
                 buf, std::make_shared<const Block>(sample), settings, use_prefetch, min_bytes_for_seek, format_filter_info);
         });

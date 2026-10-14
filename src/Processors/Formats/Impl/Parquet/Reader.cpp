@@ -217,7 +217,7 @@ void Reader::init(const ReadOptions & options_, const Block & sample_block_, For
     format_filter_info = format_filter_info_;
 }
 
-parq::FileMetaData Reader::readFileMetaData(Prefetcher & prefetcher)
+parq::FileMetaData Reader::readFileMetaData(Prefetcher & prefetcher, size_t initial_read_size)
 {
     /// Parquet file ends with:
     ///  * serialized FileMetaData struct,
@@ -230,7 +230,7 @@ parq::FileMetaData Reader::readFileMetaData(Prefetcher & prefetcher)
 
     /// Read the last 64 KiB in hopes that FileMetaData is smaller than that.
     /// This is usually enough for files smaller than a few hundred MB.
-    size_t initial_read_size = std::min(file_size, 64ul << 10);
+    initial_read_size = std::clamp<size_t>(initial_read_size, 8, file_size);
     PODArray<char> buf(initial_read_size);
     prefetcher.readSync(buf.data(), initial_read_size, file_size - initial_read_size);
 

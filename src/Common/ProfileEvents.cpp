@@ -844,6 +844,10 @@ The server successfully detected this situation and will download merged part fr
     M(ReadBufferFromS3Microseconds, "Time spent on reading from S3.", ValueType::Microseconds) \
     M(ReadBufferFromS3InitMicroseconds, "Time spent initializing connection to S3.", ValueType::Microseconds) \
     M(ReadBufferFromS3Bytes, "Bytes read from S3.", ValueType::Bytes) \
+    M(PufferFishReadMicroseconds, "Time spent in reads served by the PufferFish cache.", ValueType::Microseconds) \
+    M(PufferFishReadBytes, "Bytes read through the PufferFish cache.", ValueType::Bytes) \
+    M(PufferFishGetRequests, "GET requests issued by the PufferFish cache.", ValueType::Number) \
+    M(PufferFishGetBytes, "Bytes fetched from object storage by the PufferFish cache.", ValueType::Bytes) \
     M(ReadBufferFromS3RequestsErrors, "Number of exceptions while reading from S3.", ValueType::Number) \
     \
     M(WriteBufferFromS3Microseconds, "Time spent on writing to S3.", ValueType::Microseconds) \

@@ -8,6 +8,7 @@
 #include <Formats/FormatSettings.h>
 #include <Formats/FormatFilterInfo.h>
 #include <IO/ReadBufferFromString.h>
+#include <IO/WithFormatLayout.h>
 #include <Processors/Formats/IInputFormat.h>
 #include <Processors/Formats/ISchemaReader.h>
 #include <boost/algorithm/string.hpp>
@@ -100,6 +101,8 @@ private:
     void prepareFileReader();
     bool prepareStripeReader();
     void prefetchStripes();
+    void describeFileUnits();
+    void describeStripeUnits(int stripe);
 
     std::unique_ptr<orc::Reader> file_reader;
     std::unique_ptr<orc::RowReader> stripe_reader;
@@ -124,6 +127,9 @@ private:
     size_t prefetch_iterator{};
 
     std::unique_ptr<orc::StripeInformation> current_stripe_info;
+
+    WithFormatLayout * layout_sink = nullptr;
+    std::vector<bool> described_stripes;
 
     std::atomic<int> is_stopped{0};
 };

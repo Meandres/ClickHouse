@@ -60,6 +60,7 @@
 #include <Common/SipHash.h>
 #include <Common/parseGlobs.h>
 #include <Storages/ObjectStorage/IObjectIterator.h>
+#include <Storages/ObjectStorage/PufferFish/PufferFishReadBuffer.h>
 #if ENABLE_DISTRIBUTED_CACHE
 #include <DistributedCache/DistributedCacheRegistry.h>
 #include <DistributedCache/DistributedCacheCommon.h>
@@ -207,6 +208,7 @@ namespace Setting
     extern const SettingsMaxThreads max_threads;
     extern const SettingsBool use_cache_for_count_from_files;
     extern const SettingsString filesystem_cache_name;
+    extern const SettingsBool use_pufferfish_cache;
     extern const SettingsUInt64 filesystem_cache_boundary_alignment;
     extern const SettingsBool use_iceberg_partition_pruning;
     extern const SettingsBool cluster_function_process_archive_on_multiple_nodes;
@@ -1799,6 +1801,14 @@ std::unique_ptr<ReadBufferFromFileBase> createReadBuffer(
         use_filesystem_cache = false;
         use_page_cache = false;
     }
+
+#if USE_PUFFERFISH
+    if (settings[Setting::use_pufferfish_cache] && is_size_known && object_info.metadata->isEtagUsableAsCacheKey())
+    {
+        if (auto buf = tryCreatePufferFishReadBuffer(object_info, object_storage, effective_read_settings, context_))
+            return buf;
+    }
+#endif
 
     auto modified_read_settings = is_size_known
         ? effective_read_settings.adjustBufferSize(object_size)

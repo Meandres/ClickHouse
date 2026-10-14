@@ -195,6 +195,7 @@ add_headers_and_sources(dbms Storages/ObjectStorage/S3)
 add_headers_and_sources(dbms Storages/ObjectStorage/HDFS)
 add_headers_and_sources(dbms Storages/ObjectStorage/Local)
 add_headers_and_sources(dbms Storages/ObjectStorage/Web)
+add_headers_and_sources(dbms Storages/ObjectStorage/PufferFish)
 add_headers_and_sources(dbms Storages/ObjectStorage/DataLakes)
 add_headers_and_sources(dbms Storages/ObjectStorage/DataLakes/Common)
 add_headers_and_sources(dbms Storages/ObjectStorage/DataLakes/Iceberg)
@@ -787,6 +788,10 @@ endif ()
 
 if (TARGET ch_contrib::avrocpp)
     target_link_libraries(dbms PRIVATE ch_contrib::avrocpp)
+endif ()
+
+if (TARGET ch_contrib::pufferfish)
+    target_link_libraries(dbms PRIVATE ch_contrib::pufferfish)
 endif ()
 
 set_source_files_properties(Common/CaresPTRResolver.cpp PROPERTIES COMPILE_FLAGS -Wno-reserved-identifier)
