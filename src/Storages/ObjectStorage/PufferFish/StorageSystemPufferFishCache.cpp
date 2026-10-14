@@ -35,7 +35,6 @@ void StorageSystemPufferFishCache::fillData(MutableColumns & res_columns, Contex
     add("block_size", options.block_size);
     add("coalesce", options.coalesce);
     add("max_get_bytes", options.max_get_bytes);
-    add("io_threads", options.io_threads);
     const auto stats = cache->Stats();
     add("reads", stats.reads);
     add("bytes_read", stats.bytes_read);

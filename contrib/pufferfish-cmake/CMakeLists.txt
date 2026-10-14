@@ -16,7 +16,6 @@ set (PUFFERFISH_SRC "${PUFFERFISH_SOURCE_DIR}/src")
 add_library (_pufferfish
     "${PUFFERFISH_SRC}/core/status.cc"
     "${PUFFERFISH_SRC}/core/buffer.cc"
-    "${PUFFERFISH_SRC}/core/thread_pool.cc"
     "${PUFFERFISH_SRC}/layout/layout.cc"
     "${PUFFERFISH_SRC}/cache/planner.cc"
     "${PUFFERFISH_SRC}/cache/entry_store.cc"
