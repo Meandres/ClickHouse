@@ -109,8 +109,10 @@ add_contrib (arrow-cmake arrow) # requires: snappy, thrift, double-conversion, x
 add_contrib (avro-cmake avro) # requires: snappy
 if (PUFFERFISH_SOURCE_DIR)
     add_subdirectory (pufferfish-cmake)
-else ()
+elseif (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/pufferfish")
     add_contrib (pufferfish-cmake pufferfish)
+else ()
+    message (STATUS "Not using PufferFish: pass -DPUFFERFISH_SOURCE_DIR=<path to the library>")
 endif ()
 add_contrib (openldap-cmake openldap)
 add_contrib (msgpack-c-cmake msgpack-c)

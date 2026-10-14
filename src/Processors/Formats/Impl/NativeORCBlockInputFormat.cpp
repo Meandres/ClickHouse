@@ -1278,8 +1278,9 @@ NativeORCBlockInputFormat::NativeORCBlockInputFormat(
 {
 }
 
-/// Stripe footers and the file tail (stripe statistics, footer, postscript) are known from the file footer; the streams of
-/// a stripe only from its stripe footer, so they are described stripe by stripe, before the stripe is read.
+/// Stripe footers are known from the file footer; the streams of a stripe only from its stripe footer, so they are described
+/// stripe by stripe, before the stripe is read. The file tail (stripe statistics, footer, postscript) is no unit: it was
+/// read before the layout was known, and the grid cells that hold it stay valid.
 void NativeORCBlockInputFormat::describeFileUnits()
 {
     layout_sink = tryGetFormatLayoutSink(*in);
@@ -1288,18 +1289,12 @@ void NativeORCBlockInputFormat::describeFileUnits()
     const uint64_t num_stripes = file_reader->getNumberOfStripes();
     described_stripes.assign(num_stripes, false);
     WithFormatLayout::Units units;
-    units.reserve(num_stripes + 3);
+    units.reserve(num_stripes);
     for (uint64_t i = 0; i < num_stripes; ++i)
     {
         auto stripe = file_reader->getStripe(i);
         units.emplace_back(stripe->getOffset() + stripe->getIndexLength() + stripe->getDataLength(), stripe->getFooterLength());
     }
-    const uint64_t statistics_offset = file_reader->getContentLength();
-    const uint64_t footer_offset = statistics_offset + file_reader->getStripeStatisticsLength();
-    const uint64_t postscript_offset = footer_offset + file_reader->getFileFooterLength();
-    units.emplace_back(statistics_offset, footer_offset - statistics_offset);
-    units.emplace_back(footer_offset, postscript_offset - footer_offset);
-    units.emplace_back(postscript_offset, file_reader->getFileLength() - postscript_offset);
     layout_sink->addFormatUnits("orc", std::move(units));
 }
 

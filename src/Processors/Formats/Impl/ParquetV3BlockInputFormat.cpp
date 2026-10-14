@@ -65,8 +65,9 @@ ParquetV3BlockInputFormat::ParquetV3BlockInputFormat(
         format_filter_info = std::make_shared<FormatFilterInfo>();
 }
 
-/// One unit per column chunk (dictionary page included), column index, offset index and bloom filter, plus the footer.
-static WithFormatLayout::Units describeParquetUnits(const parquet::format::FileMetaData & metadata, Parquet::Prefetcher & prefetcher)
+/// One unit per column chunk (dictionary page included), column index, offset index and bloom filter. The footer is no
+/// unit: it was read before the layout was known, and the grid cells that hold it stay valid in the gap it falls in.
+static WithFormatLayout::Units describeParquetUnits(const parquet::format::FileMetaData & metadata, const Parquet::Prefetcher & prefetcher)
 {
     const size_t file_size = prefetcher.getFileSize();
     WithFormatLayout::Units units;
@@ -92,11 +93,6 @@ static WithFormatLayout::Units describeParquetUnits(const parquet::format::FileM
                 add(meta.bloom_filter_offset, meta.bloom_filter_length);
         }
     }
-    char tail[8];
-    prefetcher.readSync(tail, sizeof(tail), file_size - sizeof(tail));
-    int32_t footer_length = 0;
-    memcpy(&footer_length, tail, sizeof(footer_length));
-    add(int64_t(file_size) - 8 - footer_length, int64_t(footer_length) + 8);
     return units;
 }
 

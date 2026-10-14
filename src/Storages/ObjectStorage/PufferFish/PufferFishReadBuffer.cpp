@@ -134,25 +134,11 @@ void PufferFishReadBuffer::setReadUntilEnd()
 
 void PufferFishReadBuffer::addFormatUnits(std::string_view format, Units units)
 {
-    auto current = file->layout();
-    std::vector<pufferfish::ByteRange> merged;
-    if (current && current->format() == format)
-        merged.assign(current->units().begin(), current->units().end());
-    const auto known_end = merged.size();
-    const auto by_offset = [](const pufferfish::ByteRange & a, const pufferfish::ByteRange & b) { return a.offset < b.offset; };
-
-    bool changed = false;
+    pufferfish::UnitDescription description{String(format), {}};
+    description.units.reserve(units.size());
     for (const auto & [unit_offset, unit_length] : units)
-    {
-        const pufferfish::ByteRange unit{unit_offset, unit_length};
-        auto it = std::lower_bound(merged.begin(), merged.begin() + known_end, unit, by_offset);
-        if (it != merged.begin() + known_end && *it == unit)
-            continue;
-        merged.push_back(unit);
-        changed = true;
-    }
-    if (changed)
-        file->SetLayout({String(format), std::move(merged)});
+        description.units.push_back({unit_offset, unit_length});
+    file->AddUnits(std::move(description));
 }
 
 #if USE_AWS_S3
@@ -166,16 +152,14 @@ namespace
 {
 
 /// PufferFish's ObjectStore over ClickHouse's S3 client, so endpoint, credentials and retries are those of the table.
-/// Keys are "bucket/key". Head of the opened object is answered from the metadata ClickHouse already has.
+/// Keys are "bucket/key".
 class ClickHouseS3Store final : public pufferfish::ObjectStore
 {
 public:
-    ClickHouseS3Store(std::shared_ptr<const S3::Client> client_, String id_, size_t max_attempts_, String known_key_, pufferfish::ObjectInfo known_info_)
+    ClickHouseS3Store(std::shared_ptr<const S3::Client> client_, String id_, size_t max_attempts_)
         : client(std::move(client_))
         , store_id(std::move(id_))
         , max_attempts(std::max<size_t>(1, max_attempts_))
-        , known_key(std::move(known_key_))
-        , known_info(std::move(known_info_))
     {
     }
 
@@ -183,8 +167,6 @@ public:
 
     pufferfish::Result<pufferfish::ObjectInfo> Head(const std::string & key) override
     {
-        if (key == known_key)
-            return known_info;
         try
         {
             const auto [bucket, object_key] = split(key);
@@ -268,8 +250,6 @@ private:
     std::shared_ptr<const S3::Client> client;
     String store_id;
     size_t max_attempts;
-    String known_key;
-    pufferfish::ObjectInfo known_info;
 };
 
 }
@@ -298,11 +278,10 @@ std::unique_ptr<ReadBufferFromFileBase> tryCreatePufferFishReadBuffer(
     auto store = std::make_shared<ClickHouseS3Store>(
         s3_storage->getS3StorageClient(),
         "s3:" + s3_storage->getURI().endpoint,
-        s3_storage->getS3Settings().request_settings[S3RequestSetting::max_single_read_retries],
-        full_key,
-        pufferfish::ObjectInfo{object.metadata->size_bytes, object.metadata->etag});
+        s3_storage->getS3Settings().request_settings[S3RequestSetting::max_single_read_retries]);
 
-    auto file = cache->Open(std::move(store), full_key);
+    /// Size and ETag come from the LIST/HEAD ClickHouse already did: no HEAD here.
+    auto file = cache->Open(std::move(store), full_key, pufferfish::ObjectInfo{object.metadata->size_bytes, object.metadata->etag});
     if (!file.ok())
         throw Exception(ErrorCodes::S3_ERROR, "Cannot open {} through PufferFish: {}", full_key, file.status().ToString());
 

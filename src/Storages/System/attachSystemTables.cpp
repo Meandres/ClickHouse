@@ -31,6 +31,7 @@
 #include <Storages/System/StorageSystemDetachedTables.h>
 #include <Storages/System/StorageSystemDictionaries.h>
 #include <Storages/System/StorageSystemEvents.h>
+#include <Storages/ObjectStorage/PufferFish/StorageSystemPufferFishCache.h>
 #include <Storages/System/StorageSystemFailPoints.h>
 #include <Storages/System/StorageSystemFormats.h>
 #include <Storages/System/StorageSystemFunctions.h>
@@ -225,6 +226,9 @@ void attachSystemTablesServerExceptOne(ContextPtr context, IDatabase & system_da
     attach<StorageSystemFunctions>(context, system_database, "functions", "Contains a list of all available ordinary and aggregate functions with their descriptions.");
     attach<StorageSystemUserDefinedFunctions>(context, system_database, "user_defined_functions", "Shows all user-defined executable functions with their metadata, configuration, and loading status.");
     attach<StorageSystemEvents>(context, system_database, "events", "Contains profiling events and their current value.");
+#if USE_PUFFERFISH
+    attach<StorageSystemPufferFishCache>(context, system_database, "pufferfish_cache", "Options and statistics of the PufferFish object-storage cache.");
+#endif
     attach<StorageSystemSettings>(context, system_database, "settings", "Contains a list of all user-level settings (which can be modified in a scope of query or session), their current and default values along with descriptions.");
     attach<StorageSystemServerSettings>(context, system_database, "server_settings", "Contains a list of all server-wide settings (which are effective only on server startup and usually cannot be modified at runtime), their current and default values along with descriptions.");
     attach<StorageSystemSettingsChanges>(context, system_database, "settings_changes", "Contains the information about the settings changes through different ClickHouse versions. You may make ClickHouse behave like a particular previous version by changing the `compatibility` user-level settings.");
