@@ -1278,6 +1278,20 @@ NativeORCBlockInputFormat::NativeORCBlockInputFormat(
 {
 }
 
+/// orc::createReader reads the last 16 KiB (DIRECTORY_SIZE_GUESS) on every open. Units are split at that point, so the
+/// tail read does not fetch the whole last stream of the last stripe.
+static void addORCUnit(WithFormatLayout::Units & units, uint64_t offset, uint64_t length, uint64_t file_length)
+{
+    const uint64_t tail_read_start = file_length - std::min<uint64_t>(file_length, 16 * 1024);
+    if (offset < tail_read_start && offset + length > tail_read_start)
+    {
+        units.emplace_back(offset, tail_read_start - offset);
+        units.emplace_back(tail_read_start, offset + length - tail_read_start);
+    }
+    else
+        units.emplace_back(offset, length);
+}
+
 /// Stripe footers are known from the file footer; the streams of a stripe only from its stripe footer, so they are described
 /// stripe by stripe, before the stripe is read. The file tail (stripe statistics, footer, postscript) is no unit: it was
 /// read before the layout was known, and the grid cells that hold it stay valid.
@@ -1293,7 +1307,8 @@ void NativeORCBlockInputFormat::describeFileUnits()
     for (uint64_t i = 0; i < num_stripes; ++i)
     {
         auto stripe = file_reader->getStripe(i);
-        units.emplace_back(stripe->getOffset() + stripe->getIndexLength() + stripe->getDataLength(), stripe->getFooterLength());
+        addORCUnit(units, stripe->getOffset() + stripe->getIndexLength() + stripe->getDataLength(), stripe->getFooterLength(),
+            file_reader->getFileLength());
     }
     layout_sink->addFormatUnits("orc", std::move(units));
 }
@@ -1308,7 +1323,7 @@ void NativeORCBlockInputFormat::describeStripeUnits(int stripe)
     for (uint64_t i = 0; i < info->getNumberOfStreams(); ++i)
     {
         auto stream = info->getStreamInformation(i);
-        units.emplace_back(stream->getOffset(), stream->getLength());
+        addORCUnit(units, stream->getOffset(), stream->getLength(), file_reader->getFileLength());
     }
     layout_sink->addFormatUnits("orc", std::move(units));
 }
