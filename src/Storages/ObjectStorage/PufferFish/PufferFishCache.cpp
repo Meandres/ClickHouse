@@ -33,6 +33,7 @@ std::shared_ptr<pufferfish::Cache> PufferFishCache::getOrInit(const Poco::Util::
     options.block_size = config.getUInt64(prefix + "block_size", options.block_size);
     options.coalesce = config.getBool(prefix + "coalesce", options.coalesce);
     options.max_get_bytes = config.getUInt64(prefix + "max_get_bytes", options.max_get_bytes);
+    options.trace_path = config.getString(prefix + "trace_path", "");
 
     auto made = pufferfish::Cache::Make(options);
     if (!made.ok())

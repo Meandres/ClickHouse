@@ -2158,6 +2158,7 @@ void ServerSettings::checkUnknownSettings(const Poco::Util::AbstractConfiguratio
         "replicated_merge_tree",
         "database_replicated",
         "filesystem_caches",
+        "pufferfish",
         "custom_cached_disks_base_directory",
         "custom_local_disks_base_directory",
 
